@@ -1,9 +1,15 @@
 const std = @import("std");
 const f = @import("./future.zig");
 
+const AllocType = enum {
+    Stack,
+    Heap,
+};
+
 const Counter = struct {
     _i: usize = 0,
     _n: usize = 0,
+    _metadata: AllocType = AllocType.Stack,
 
     pub fn future(self: *Counter) f.Future {
         return .{
@@ -29,23 +35,66 @@ const Counter = struct {
             };
         }
 
-        return .{ .state = f.FutureState.Successful, .result = &a._i };
+        return .{
+            .state = f.FutureState.Successful,
+            .result = &a._i,
+        };
     }
-    pub fn deinit(_: *anyopaque) void {}
+
+    pub fn deinit(self: *anyopaque) void {
+        const s: *Counter = @ptrCast(@alignCast(self));
+
+        if (s._metadata == .Heap) {
+            std.heap.page_allocator.destroy(s);
+        }
+    }
+
+    pub fn then(res: *anyopaque) f.Future {
+        const c = std.heap.page_allocator.create(Counter) catch {
+            //todo: handle with reject
+            @panic("abc");
+        };
+
+        const i: *usize = @ptrCast(@alignCast(res));
+
+        c.* = Counter{
+            ._i = i.*,
+            ._n = i.* + 5,
+            ._metadata = AllocType.Heap,
+        };
+
+        return c.future();
+    }
 };
 
 pub fn main() !void {
-    // var gpa = std.heap.GeneralPurposeAllocator(.{}).init;
-    // defer gpa.deinit();
-
-    // const alloc = gpa.allocator();
-    std.debug.print("abc\n", .{});
-
     var c = Counter{ ._n = 5 };
+    var c2 = Counter{ ._n = 20, ._i = 15 };
 
-    var fut = c.future();
+    var t = f.Then{
+        ._left = c.future(),
+        ._thenFn = myFn,
+    };
 
-    while (fut.poll().state == f.FutureState.Pending) {}
+    var t2 = f.Then{
+        ._left = c2.future(),
+        ._thenFn = myFn,
+    };
+
+    var fut1 = t.future();
+    defer fut1.deinit();
+
+    var fut2 = t2.future();
+    defer fut2.deinit();
+
+    while (true) {
+        const res1 = fut1.poll();
+        const res2 = fut2.poll();
+
+        if (res1.state == f.FutureState.Successful and res2.state == f.FutureState.Successful) {
+            break;
+        }
+    }
     // const addr = std.net.Address.initIp4(.{ 127, 0, 0, 1 }, 8080);
 
     // var server = try addr.listen(.{ .reuse_address = true, .force_nonblocking = true });
@@ -59,4 +108,20 @@ pub fn main() !void {
     // const f = Future{};
 
     // _ = f;
+}
+
+fn myFn(res: *anyopaque) f.Future {
+    std.debug.print("hey\n", .{});
+    const y: *usize = @ptrCast(@alignCast(res));
+
+    const innerC = std.heap.page_allocator.create(Counter) catch {
+        @panic("");
+    };
+
+    innerC.* = Counter{
+        ._i = y.*,
+        ._n = y.* + 5,
+    };
+
+    return innerC.future();
 }
