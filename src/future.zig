@@ -34,6 +34,18 @@ pub const Future = struct {
     pub fn deinit(self: Future) void {
         self.vtable.deinit(self.ptr);
     }
+
+    pub fn then(self: Future, thenFn: *const fn (res: *anyopaque) Future) Future {
+        const f = std.heap.page_allocator.create(Then) catch {
+            @panic("abc");
+        };
+        f.* = Then{
+            ._left = self,
+            ._thenFn = thenFn,
+        };
+
+        return f.future();
+    }
 };
 
 pub const Then = struct {

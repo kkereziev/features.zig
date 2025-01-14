@@ -69,29 +69,16 @@ const Counter = struct {
 
 pub fn main() !void {
     var c = Counter{ ._n = 5 };
-    var c2 = Counter{ ._n = 20, ._i = 15 };
 
-    var t = f.Then{
-        ._left = c.future(),
-        ._thenFn = myFn,
-    };
-
-    var t2 = f.Then{
-        ._left = c2.future(),
-        ._thenFn = myFn,
-    };
-
-    var fut1 = t.future();
-    defer fut1.deinit();
-
-    var fut2 = t2.future();
-    defer fut2.deinit();
+    var fut1 = c.future()
+        .then(myFn)
+        .then(myFn)
+        .then(myFn);
 
     while (true) {
         const res1 = fut1.poll();
-        const res2 = fut2.poll();
 
-        if (res1.state == f.FutureState.Successful and res2.state == f.FutureState.Successful) {
+        if (res1.state == f.FutureState.Successful) {
             break;
         }
     }
@@ -111,7 +98,6 @@ pub fn main() !void {
 }
 
 fn myFn(res: *anyopaque) f.Future {
-    std.debug.print("hey\n", .{});
     const y: *usize = @ptrCast(@alignCast(res));
 
     const innerC = std.heap.page_allocator.create(Counter) catch {
