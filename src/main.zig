@@ -9,6 +9,7 @@ const AllocType = enum {
 const Counter = struct {
     _i: usize = 0,
     _n: usize = 0,
+    _alloc: ?std.mem.Allocator = null,
     _metadata: AllocType = AllocType.Stack,
 
     pub fn future(self: *Counter) f.Future {
@@ -21,7 +22,7 @@ const Counter = struct {
         };
     }
 
-    pub fn poll(self: *anyopaque) f.Result {
+    pub fn poll(self: *anyopaque) anyerror!f.Result {
         var a: *Counter = @ptrCast(@alignCast(self));
 
         if (a._n > a._i) {
@@ -45,68 +46,50 @@ const Counter = struct {
         const s: *Counter = @ptrCast(@alignCast(self));
 
         if (s._metadata == .Heap) {
-            std.heap.page_allocator.destroy(s);
+            s._alloc.?.destroy(s);
         }
-    }
-
-    pub fn then(res: *anyopaque) f.Future {
-        const c = std.heap.page_allocator.create(Counter) catch {
-            //todo: handle with reject
-            @panic("abc");
-        };
-
-        const i: *usize = @ptrCast(@alignCast(res));
-
-        c.* = Counter{
-            ._i = i.*,
-            ._n = i.* + 5,
-            ._metadata = AllocType.Heap,
-        };
-
-        return c.future();
     }
 };
 
 pub fn main() !void {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}).init;
+    defer {
+        const ok = gpa.deinit();
+
+        std.debug.assert(ok == std.heap.Check.ok);
+    }
+
+    const alloc = gpa.allocator();
+
     var c = Counter{ ._n = 5 };
 
     var fut1 = c.future()
-        .then(myFn)
-        .then(myFn)
-        .then(myFn);
+        .then(alloc, myFn)
+        .then(alloc, myFn)
+        .then(alloc, myFn);
+    defer fut1.deinit();
 
     while (true) {
-        const res1 = fut1.poll();
+        const res1 = try fut1.poll();
 
         if (res1.state == f.FutureState.Successful) {
             break;
         }
     }
-    // const addr = std.net.Address.initIp4(.{ 127, 0, 0, 1 }, 8080);
-
-    // var server = try addr.listen(.{ .reuse_address = true, .force_nonblocking = true });
-    // defer server.deinit();
-
-    // const conn = try server.accept();
-    // defer conn.stream.close();
-
-    // _ = try conn.stream.write("abc");
-
-    // const f = Future{};
-
-    // _ = f;
 }
 
-fn myFn(res: *anyopaque) f.Future {
+fn myFn(alloc: std.mem.Allocator, res: *anyopaque) f.Future {
     const y: *usize = @ptrCast(@alignCast(res));
 
-    const innerC = std.heap.page_allocator.create(Counter) catch {
+    const innerC = alloc.create(Counter) catch {
         @panic("");
     };
 
     innerC.* = Counter{
         ._i = y.*,
         ._n = y.* + 5,
+        ._alloc = alloc,
+        ._metadata = .Heap,
     };
 
     return innerC.future();

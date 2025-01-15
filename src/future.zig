@@ -1,10 +1,8 @@
 const std = @import("std");
 
-// const ThenFn = fn (comptime T: type) T;
-
-const AllocType = enum {
-    Stack,
-    Heap,
+pub const Result = struct {
+    result: ?*anyopaque,
+    state: FutureState,
 };
 
 pub const FutureState = enum {
@@ -13,21 +11,16 @@ pub const FutureState = enum {
     Rejected,
 };
 
-pub const Result = struct {
-    result: ?*anyopaque,
-    state: FutureState,
-};
-
-const VTable = struct {
-    poll: *const fn (*anyopaque) Result,
-    deinit: *const fn (*anyopaque) void,
-};
-
 pub const Future = struct {
     ptr: *anyopaque,
     vtable: *const VTable,
 
-    pub fn poll(self: Future) Result {
+    const VTable = struct {
+        poll: *const fn (*anyopaque) anyerror!Result,
+        deinit: *const fn (*anyopaque) void,
+    };
+
+    pub fn poll(self: Future) !Result {
         return self.vtable.poll(self.ptr);
     }
 
@@ -35,13 +28,15 @@ pub const Future = struct {
         self.vtable.deinit(self.ptr);
     }
 
-    pub fn then(self: Future, thenFn: *const fn (res: *anyopaque) Future) Future {
-        const f = std.heap.page_allocator.create(Then) catch {
-            @panic("abc");
+    pub fn then(self: Future, alloc: std.mem.Allocator, thenFn: *const fn (alloc: std.mem.Allocator, res: *anyopaque) Future) Future {
+        const f = alloc.create(Then) catch {
+            @panic("out of memory");
         };
+
         f.* = Then{
             ._left = self,
             ._thenFn = thenFn,
+            ._alloc = alloc,
         };
 
         return f.future();
@@ -51,14 +46,8 @@ pub const Future = struct {
 pub const Then = struct {
     _left: ?Future,
     _right: ?Future = null,
-    _thenFn: *const fn (res: *anyopaque) Future,
-
-    pub fn init(f: Future, thenFn: *const fn (res: *anyopaque) Future) Then {
-        return .{
-            ._left = f,
-            ._thenFn = thenFn,
-        };
-    }
+    _thenFn: *const fn (alloc: std.mem.Allocator, res: *anyopaque) Future,
+    _alloc: std.mem.Allocator,
 
     pub fn future(self: *Then) Future {
         return .{
@@ -70,14 +59,14 @@ pub const Then = struct {
         };
     }
 
-    pub fn poll(self: *anyopaque) Result {
+    pub fn poll(self: *anyopaque) anyerror!Result {
         var s: *Then = @ptrCast(@alignCast(self));
 
         if (s._left) |l| {
-            const res = l.poll();
+            const res = try l.poll();
 
             if (res.state == FutureState.Successful) {
-                s._right = s._thenFn(res.result.?);
+                s._right = s._thenFn(s._alloc, res.result.?);
 
                 s._left = null;
 
@@ -104,5 +93,7 @@ pub const Then = struct {
         if (self._right) |v| {
             v.deinit();
         }
+
+        self._alloc.destroy(self);
     }
 };
