@@ -4,7 +4,7 @@ What are futures? - They represent single unit of work that will be done(eventua
 
 ### Disclaimer:
 
-- The code here is far from perfect, it's messy, it isn't that clean. This is a personal project of mine to get more familiar with async runtimes like tokio(rust) and node.js. The goal of the project is to be eventually used in an async event loop(io_uring, epoll).
+- The code here is far from perfect, it's messy, it isn't that clean. This is a personal project of mine to get more familiar with async runtimes like tokio(rust) and node.js. The goal of the project is to be eventually used in an async event loop(io_uring, epoll). It isn't meant to be used at production environments, but it could be used to draw ideas from.
 
 ### TODOs:
 
