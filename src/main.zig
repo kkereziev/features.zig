@@ -6,6 +6,10 @@ const AllocType = enum {
     Heap,
 };
 
+const MyErr = error{
+    Hello,
+};
+
 const Counter = struct {
     _i: usize = 0,
     _n: usize = 0,
@@ -29,6 +33,10 @@ const Counter = struct {
             std.debug.print("{any}\n", .{a._i});
 
             a._i += 1;
+
+            if (a._i == 15) {
+                return MyErr.Hello;
+            }
 
             return .{
                 .state = f.FutureState.Pending,
@@ -66,7 +74,9 @@ pub fn main() !void {
     var fut1 = c.future()
         .then(alloc, myFn)
         .then(alloc, myFn)
-        .then(alloc, myFn);
+        .then(alloc, myFn)
+        .catchError(alloc, catchFn);
+
     defer fut1.deinit();
 
     while (true) {
@@ -79,6 +89,7 @@ pub fn main() !void {
 }
 
 fn myFn(alloc: std.mem.Allocator, res: *anyopaque) f.Future {
+    std.debug.print("hey\n", .{});
     const y: *usize = @ptrCast(@alignCast(res));
 
     const innerC = alloc.create(Counter) catch {
@@ -93,4 +104,16 @@ fn myFn(alloc: std.mem.Allocator, res: *anyopaque) f.Future {
     };
 
     return innerC.future();
+}
+
+fn catchFn(alloc: std.mem.Allocator, err: anyerror) f.Future {
+    var d = alloc.create(f.Done) catch {
+        @panic("out of memory");
+    };
+
+    std.debug.print("{any}\n", .{err});
+
+    d.* = f.Done{ ._alloc = alloc };
+
+    return d.future();
 }
